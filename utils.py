@@ -1,10 +1,21 @@
 import torch
+from torch import nn
 import torch.nn.functional as F
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
 
 torch.manual_seed(0)  # Set for our testing purposes, please do not change!
 
+
+def _add_sn(m):
+    if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+        return nn.utils.spectral_norm(m)
+    else:
+        return m
+
+
+def add_sn_(model: nn.Module):
+    model.apply(_add_sn)
 
 def show_tensor_images(image_tensor, num_images=25, size=(1, 28, 28), nrow=5, show=True):
     """
