@@ -61,7 +61,7 @@ class DefectGANGenerator(nn.Module):
             num_spatial_layers (int, optional): 空间图数量，如果是前景和背景则为2，默认: 2
         """
 
-        super(DefectNetGenerator, self).__init__()
+        super(DefectGANGenerator, self).__init__()
         noise_dim = (in_channels, noise_image_size, noise_image_size)
         self.adaptive_noise_mul = _AdaptiveNoiseMultiplier(noise_dim)
 

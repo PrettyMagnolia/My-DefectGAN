@@ -1,3 +1,4 @@
+import os
 import torch
 from torch import nn, Tensor
 from typing import Any
@@ -38,6 +39,11 @@ def get_sd_map_from_tensor(
     sd_map_tensor[class_index] = tensor[0]
 
     return sd_map_tensor
+
+
+def make_directory(dir_path: str) -> None:
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
 
 
 def show_tensor_images(image_tensor, num_images=25, size=(1, 28, 28), nrow=5, show=True):

@@ -272,5 +272,3 @@ if __name__ == '__main__':
     defect_dataloader = data.DataLoader(defect_dataset, batch_size=4, shuffle=True)
     for data in tqdm(defect_dataloader):
         print(data)
-
-
