@@ -1,5 +1,6 @@
 import torch
-from torch import nn
+from torch import nn, Tensor
+from typing import Any
 import torch.nn.functional as F
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
@@ -16,6 +17,28 @@ def _add_sn(m):
 
 def add_sn_(model: nn.Module):
     model.apply(_add_sn)
+
+
+def get_sd_map_from_tensor(
+        tensor: Tensor,
+        num_spatial_classes: int = 2,
+        tensor_shape: tuple = (224, 224),
+        class_index: Tensor = 0,
+) -> Tensor:
+    """从掩码张量中获取空间分类张量
+
+    Args:
+        tensor (Tensor): 掩码张量
+        num_spatial_classes (int, optional): 空间层数, 如果只有前景和背景, 则为2, 默认: 2
+        tensor_shape (tuple, optional): 张量尺寸, 默认: (224, 224)
+        class_index (Tensor, optional): 类别索引, 默认: 0
+    """
+
+    sd_map_tensor = torch.zeros(num_spatial_classes, tensor_shape[0], tensor_shape[1])
+    sd_map_tensor[class_index] = tensor[0]
+
+    return sd_map_tensor
+
 
 def show_tensor_images(image_tensor, num_images=25, size=(1, 28, 28), nrow=5, show=True):
     """

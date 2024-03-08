@@ -33,12 +33,12 @@ from common_types import _size_2_t
 from utils import add_sn_
 
 __all__ = [
-    "DefectNet", "PathDiscriminator", "GradientPenaltyLoss",
-    "defectnet", "path_discriminator", "gradient_penalty_loss"
+    "DefectGANGenerator", "DefectGANDiscriminator", "GradientPenaltyLoss",
+    "defect_generator", "defect_discriminator", "gradient_penalty_loss"
 ]
 
 
-class DefectNet(nn.Module):
+class DefectGANGenerator(nn.Module):
     def __init__(
             self,
             in_channels: int = 3,
@@ -61,7 +61,7 @@ class DefectNet(nn.Module):
             num_spatial_layers (int, optional): 空间图数量，如果是前景和背景则为2，默认: 2
         """
 
-        super(DefectNet, self).__init__()
+        super(DefectNetGenerator, self).__init__()
         noise_dim = (in_channels, noise_image_size, noise_image_size)
         self.adaptive_noise_mul = _AdaptiveNoiseMultiplier(noise_dim)
 
@@ -138,7 +138,7 @@ class DefectNet(nn.Module):
         return overlay, mask
 
 
-class PathDiscriminator(nn.Module):
+class DefectGANDiscriminator(nn.Module):
     def __init__(
             self,
             in_channels: int = 3,
@@ -159,7 +159,7 @@ class PathDiscriminator(nn.Module):
             num_classes (int, optional): 分类的数量，默认: 2
         """
 
-        super(PathDiscriminator, self).__init__()
+        super(DefectGANDiscriminator, self).__init__()
         if out_channels != 1:
             raise ValueError("out_channels must be 1")
 
@@ -440,35 +440,35 @@ class GradientPenaltyLoss(nn.Module):
         return gradient_penalty
 
 
-def defectnet(spectral_norm: bool = True, **kwargs) -> DefectNet:
+def defect_generator(spectral_norm: bool = True, **kwargs) -> DefectGANGenerator:
     """DefectGAN的生成器
 
     Args:
         spectral_norm (bool, optional): 是否使用谱归一化，默认: ``True``
-        **kwargs: 参考``DefectNet``
+        **kwargs: 参考``DefectGANGenerator``
 
     Returns:
-        DefectNet: DefectGAN的生成器
+        DefectGANGenerator: DefectGAN的生成器
     """
-    model = DefectNet(**kwargs)
+    model = DefectGANGenerator(**kwargs)
     if spectral_norm:
         add_sn_(model)
 
     return model
 
 
-def path_discriminator(spectral_norm: bool = True, **kwargs) -> PathDiscriminator:
+def defect_discriminator(spectral_norm: bool = True, **kwargs) -> DefectGANDiscriminator:
     """DefectGAN的鉴别器
 
     Args:
         spectral_norm (bool, optional): 是否使用谱归一化，默认: ``True``
-        **kwargs: 参考``PathDiscriminator``
+        **kwargs: 参考``DefectGANDiscriminator``
 
     Returns:
-        PathDiscriminator: DefectGAN的鉴别器
+        DefectGANDiscriminator: DefectGAN的鉴别器
     """
 
-    model = PathDiscriminator(**kwargs)
+    model = DefectGANDiscriminator(**kwargs)
     if spectral_norm:
         add_sn_(model)
 
