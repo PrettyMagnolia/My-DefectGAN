@@ -466,9 +466,11 @@ class Trainer(object):
         fake_disc_output, fake_cls_output = self.d_model(fake)
 
         # 计算图像重建损失
-        A = 0.5 * (real2fake_masks + fake2real_masks)
-        a = self.rec_criterion(0.5 * (real2fake_masks + fake2real_masks), sd_map[:, [target_class_index.cpu().item()], :, :])
-        g_rec_loss = self.rec_criterion(0.5 * (real2fake_masks + fake2real_masks), sd_map[:, [target_class_index.cpu().item()], :, :])
+        selected_sd_map = []
+        for i in range(sd_map.size(0)):
+            selected_sd_map.append(sd_map[i, [target_class_index[i].cpu().item()], :, :])
+        target_sd_map = torch.stack(selected_sd_map, dim=0)
+        g_rec_loss = self.rec_criterion(0.5 * (real2fake_masks + fake2real_masks), target_sd_map)
         # 计算鉴别器GP损失
         g_gp_loss = -torch.mean(fake_disc_output)
         # 计算虚假缺陷样本的分类损失
