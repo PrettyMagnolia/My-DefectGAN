@@ -18,7 +18,7 @@ MODEL:
     NOISE_IMAGE_SIZE: 224
     NUM_SPATIAL_LAYERS: 5 # classes
 
-    SPECTRAL_NORM: True
+    SPECTRAL_NORM: False
     EMA: True
     COMPILED: False
   D:
@@ -31,7 +31,7 @@ MODEL:
     IMAGE_SIZE: 224
     NUM_CLASSES: 5 # classes
 
-    SPECTRAL_NORM: True
+    SPECTRAL_NORM: False
     EMA: False
     COMPILED: False
 
@@ -53,7 +53,7 @@ TRAIN:
   HYP:
     EPOCHS: 10
 
-    IMGS_PER_BATCH: 1
+    IMGS_PER_BATCH: 2
     SHUFFLE: True
     NUM_WORKERS: 1 # 4
     PIN_MEMORY: False # True

@@ -356,7 +356,7 @@ class _SpatialConv(nn.Module):
 
         # 对分割图进行下采样，使其与输入的Tensor形状一致
         _, _, x_h, x_w = x_in.shape
-        segment_map_down = F_vision.resize(segment_map, (x_h, x_w))
+        segment_map_down = F_vision.resize(segment_map, (x_h, x_w), antialias=True)
         segment_map_down = self.spatial_conv(segment_map_down)
 
         # 对下采样后的分割图进行归一化

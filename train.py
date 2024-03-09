@@ -210,6 +210,7 @@ class Trainer(object):
             cudnn.benchmark = False
 
     def setup_wandb(self):
+        print('setup_wandb...')
         # 初始化wandb
         wandb.init(config=self.wandb_config, project=self.wandb_project_name, name=self.exp_name)
 
@@ -367,8 +368,6 @@ class Trainer(object):
             self.g_model_noise_image_size,
             self.g_model_noise_image_size).to(self.device)
 
-
-
         # 损失函数权重
         self.g_gp_loss_weight = torch.Tensor([self.g_gp_loss_weight]).to(self.device)
         self.g_fake_cls_loss_weight = torch.Tensor([self.g_fake_cls_loss_weight]).to(self.device)
@@ -384,7 +383,6 @@ class Trainer(object):
         # for epoch in range(self.start_epoch, self.epochs):
         #     for data in tqdm(self.defect_dataloader):
         #         a = data
-
 
         for epoch in range(self.start_epoch, self.epochs):
             batch_index = 1
@@ -443,7 +441,7 @@ class Trainer(object):
                 # 打印训练进度
                 if self.print_freq <= 0:
                     raise ValueError(f"Invalid value of print_freq: {self.print_freq}, must be greater than 0.")
-                if batch_index == 0 or (batch_index + 1) % self.print_freq == 0:
+                if batch_index == 0 or (batch_index + 1) % self.print_freq == 0 or True:
                     progress.display(batch_index + 1)
 
                 # 加载下一个batch_data
@@ -468,6 +466,8 @@ class Trainer(object):
         fake_disc_output, fake_cls_output = self.d_model(fake)
 
         # 计算图像重建损失
+        A = 0.5 * (real2fake_masks + fake2real_masks)
+        a = self.rec_criterion(0.5 * (real2fake_masks + fake2real_masks), sd_map[:, [target_class_index.cpu().item()], :, :])
         g_rec_loss = self.rec_criterion(0.5 * (real2fake_masks + fake2real_masks), sd_map[:, [target_class_index.cpu().item()], :, :])
         # 计算鉴别器GP损失
         g_gp_loss = -torch.mean(fake_disc_output)
@@ -500,14 +500,16 @@ class Trainer(object):
         )
 
         self.g_optimizer.zero_grad()
-        g_loss.backward()
+        g_loss.backward(retain_graph=True)
         self.g_optimizer.step()
-
         # 鉴别器输出真实样本的结果
         real_disc_output, real_cls_output = self.d_model(real)
+        fake_disc_output, _ = self.d_model(fake.detach())
 
         # 计算鉴别器损失
-        d_gp_loss = torch.mean(fake_disc_output) - torch.mean(real_disc_output) + 10 * self.gp_criterion(self.d_model, real, fake)
+        fake_clone = fake.clone().detach()
+        fake_clone.requires_grad = True
+        d_gp_loss = torch.mean(fake_disc_output) - torch.mean(real_disc_output) + 10 * self.gp_criterion(self.d_model, real, fake_clone)
         d_real_cls_loss = self.cls_criterion(real_cls_output, inputs_class_index)
 
         d_loss = (
@@ -518,7 +520,7 @@ class Trainer(object):
         self.d_optimizer.zero_grad()
         d_loss.backward()
         self.d_optimizer.step()
-
+        print('success')
         self.g_gp_loss = g_gp_loss
         self.g_fake_cls_loss = g_fake_cls_loss
         self.g_rec_loss = g_rec_loss
@@ -565,6 +567,9 @@ if __name__ == "__main__":
         config = yaml.full_load(f)
 
     print(torch.__version__)
+
+    torch.autograd.set_detect_anomaly(True)
+
     trainer = Trainer(config)
     trainer.train()
 
