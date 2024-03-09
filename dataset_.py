@@ -106,7 +106,7 @@ class DefectGANDataset(data.Dataset):
                 for file in files:
                     if file.endswith(('.jpg', 'png')):
                         defect_image_path = os.path.join(root, file)
-                        defect_type = root.split('\\')[-1]
+                        defect_type = root.split('/')[-1]
                         if not os.path.exists(os.path.join(defect_mask_dataset_dir, defect_type, file)):
                             raise FileNotFoundError(
                                 f"Defect mask dataset directory {defect_mask_dataset_dir} does not exist. ")
@@ -144,7 +144,7 @@ class DefectGANDataset(data.Dataset):
         sd_map_tensor = self.load_sd_map_from_index(batch_index)
 
         return {
-            "class_index": torch.as_tensor(class_index).type(torch.LongTensor),
+            "class_index": torch.as_tensor(class_index).type(torch.LongTensor).to(self.device),
             "normal_tensor": normal_tensor,
             "defect_tensor": defect_tensor,
             "defect_mask_tensor": defect_mask_tensor,

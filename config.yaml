@@ -3,7 +3,7 @@ EXP_NAME: defect_gan-official
 
 SEED: 0
 MIXING_PRECISION: True
-DEVICE: "cuda:0"
+DEVICE: "cuda:1"
 CUDNN_BENCHMARK: True
 
 MODEL:

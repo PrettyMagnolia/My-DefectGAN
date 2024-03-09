@@ -27,7 +27,7 @@ from torch.optim.swa_utils import AveragedModel
 from torch.utils import data
 from tqdm.auto import tqdm
 
-import wandb
+# import wandb
 from dataset_ import DefectGANDataset, CPUPrefetcher, CUDAPrefetcher
 from model_ import defect_generator, defect_discriminator, gradient_penalty_loss
 from utils_ import load_pretrained_state_dict, load_resume_state_dict, make_directory, AverageMeter, Summary, ProgressMeter
@@ -266,24 +266,24 @@ class Trainer(object):
 
     def load_datasets(self):
         print('load_datasets...')
-        defect_dataset = DefectGANDataset(self.train_root_dir, num_classes=5, device_id='0')
+        defect_dataset = DefectGANDataset(self.train_root_dir, num_classes=5, device_id='1')
         defect_dataloader = data.DataLoader(
             defect_dataset,
             batch_size=self.train_batch_size,
             shuffle=self.train_shuffle,
-            num_workers=self.train_num_workers,
-            pin_memory=self.train_pin_memory,
+            # num_workers=self.train_num_workers,
+            # pin_memory=self.train_pin_memory,
             drop_last=self.train_drop_last,
-            persistent_workers=self.train_persistent_workers,
+            # persistent_workers=self.train_persistent_workers,
         )
 
-        # self.defect_dataloader = defect_dataloader
-        if self.device.type == "cuda":
-            # 将数据加载器替换为CUDA以加速
-            self.train_data_prefetcher = CUDAPrefetcher(defect_dataloader, self.device)
-        if self.device.type == "cpu":
-            # 将数据加载器替换为CPU以加速
-            self.train_data_prefetcher = CPUPrefetcher(defect_dataloader)
+        self.defect_dataloader = defect_dataloader
+        # if self.device.type == "cuda":
+        #     # 将数据加载器替换为CUDA以加速
+        #     self.train_data_prefetcher = CUDAPrefetcher(defect_dataloader, self.device)
+        # if self.device.type == "cpu":
+        #     # 将数据加载器替换为CPU以加速
+        #     self.train_data_prefetcher = CPUPrefetcher(defect_dataloader)
 
     def define_loss(self):
         if self.rec_criterion_name == "l1":
@@ -380,9 +380,22 @@ class Trainer(object):
         self.d_gp_loss_weight = torch.Tensor([self.d_gp_loss_weight]).to(self.device)
         self.d_real_cls_loss_weight = torch.Tensor([self.d_real_cls_loss_weight]).to(self.device)
 
-        # for epoch in range(self.start_epoch, self.epochs):
-        #     for data in tqdm(self.defect_dataloader):
-        #         a = data
+        for epoch in range(self.start_epoch, self.epochs):
+            for batch_data in tqdm(self.defect_dataloader):
+
+                normals = batch_data["normal_tensor"]
+                defects = batch_data["defect_tensor"]
+                sd_maps = batch_data["sd_map_tensor"]
+                defect_class_index = batch_data['class_index']
+
+                # 将正常的标签设置为0
+                normal_class_index = torch.as_tensor([self.normal_label] * self.train_batch_size).type(
+                    torch.LongTensor).to(self.device)
+
+                self.train_batch(normals, sd_maps, normal_class_index, defect_class_index, fake_noise,
+                                 rec_noise)  # Train norm to defect
+                self.train_batch(defects, sd_maps, defect_class_index, normal_class_index, fake_noise,
+                                 rec_noise)  # Train defect to normal
 
         for epoch in range(self.start_epoch, self.epochs):
             batch_index = 1
