@@ -25,23 +25,26 @@ from torch.backends import cudnn
 from torch.cuda import amp
 from torch.optim.swa_utils import AveragedModel
 from torch.utils import data
-from tqdm.auto import tqdm
 
-# import wandb
+import wandb
 from dataset_ import DefectGANDataset, CPUPrefetcher, CUDAPrefetcher
 from model_ import defect_generator, defect_discriminator, gradient_penalty_loss
-from utils_ import load_pretrained_state_dict, load_resume_state_dict, make_directory, AverageMeter, Summary, ProgressMeter
+from utils_ import load_pretrained_state_dict, load_resume_state_dict, make_directory, AverageMeter, Summary, \
+    ProgressMeter
+from inference import show_image
 
 
 class Trainer(object):
     def __init__(self, config: Any):
         # 运行环境相关参数
         self.project_name = config["PROJECT_NAME"]
-        self.exp_name = config["EXP_NAME"] + time.strftime("-%Y%m%d-%H_%M_%S", time.localtime(int(round(time.time() * 1000)) / 1000))
+        self.exp_name = config["EXP_NAME"] + time.strftime("-%Y%m%d-%H_%M_%S",
+                                                           time.localtime(int(round(time.time() * 1000)) / 1000))
         self.seed = config["SEED"]
         self.mixing_precision = config["MIXING_PRECISION"]
         self.scaler = None  # TODO: 未来支持混合精度训练
-        self.device = config["DEVICE"]
+        self.device_id = config["DEVICE"]
+        self.device = None
         self.cudnn_benchmark = config["CUDNN_BENCHMARK"]
 
         self.wandb_config = config
@@ -115,7 +118,8 @@ class Trainer(object):
         self.g_rec_loss_weight = config["TRAIN"]["LOSSES"]["LAMBDA"]["G_REC_LOSS_WEIGHT"]
         self.g_cycle_rec_loss_weight = config["TRAIN"]["LOSSES"]["LAMBDA"]["G_CYCLE_REC_LOSS_WEIGHT"]
         self.g_cycle_mask_rec_loss_weight = config["TRAIN"]["LOSSES"]["LAMBDA"]["G_CYCLE_MASK_REC_LOSS_WEIGHT"]
-        self.g_cycle_mask_vanishing_loss_weight = config["TRAIN"]["LOSSES"]["LAMBDA"]["G_CYCLE_MASK_VANISHING_LOSS_WEIGHT"]
+        self.g_cycle_mask_vanishing_loss_weight = config["TRAIN"]["LOSSES"]["LAMBDA"][
+            "G_CYCLE_MASK_VANISHING_LOSS_WEIGHT"]
         self.g_cycle_spatial_loss_weight = config["TRAIN"]["LOSSES"]["LAMBDA"]["G_CYCLE_SPATIAL_LOSS_WEIGHT"]
 
         self.d_gp_loss_weight = config["TRAIN"]["LOSSES"]["LAMBDA"]["D_GP_LOSS_WEIGHT"]
@@ -160,7 +164,7 @@ class Trainer(object):
         self.setup_seed()
         self.setup_mixing_precision()
         self.setup_device()
-        # self.setup_wandb()
+        self.setup_wandb()
         # 模型
         self.build_models()
         # 数据集
@@ -192,16 +196,12 @@ class Trainer(object):
 
     def setup_device(self):
         print('setup device...')
-        # 初始化训练的设备名称
-        device = "cpu"
-        if self.device != "cpu" and self.device != "":
-            if not torch.cuda.is_available():
-                warnings.warn("No GPU detected, defaulting to `cpu`.")
-            else:
-                device = self.device
-        if self.device == "":
-            warnings.warn("No device specified, defaulting to `cpu`.")
-        self.device = torch.device(device)
+        if self.device_id == "cpu":
+            self.device = torch.device("cpu")
+        elif int(self.device_id) >= 0 and torch.cuda.is_available():
+            self.device = torch.device("cuda", int(self.device_id))
+        else:
+            raise ValueError("Device ID should be 'cpu' or a non-negative integer.")
 
         # 如果输入图像尺寸是固定的，固定卷积算法可以提升训练速度
         if self.cudnn_benchmark:
@@ -266,7 +266,8 @@ class Trainer(object):
 
     def load_datasets(self):
         print('load_datasets...')
-        defect_dataset = DefectGANDataset(self.train_root_dir, num_classes=5, device_id='1')
+        defect_dataset = DefectGANDataset(self.train_root_dir, num_classes=self.d_model_num_classes,
+                                          device_id=self.device_id)
         defect_dataloader = data.DataLoader(
             defect_dataset,
             batch_size=self.train_batch_size,
@@ -322,11 +323,13 @@ class Trainer(object):
 
     def load_model_weights(self):
         if self.pretrained_g_model_weights_path != "":
-            self.g_model = load_pretrained_state_dict(self.g_model, self.pretrained_g_model_weights_path, self.g_model_compiled)
+            self.g_model = load_pretrained_state_dict(self.g_model, self.pretrained_g_model_weights_path,
+                                                      self.g_model_compiled)
             self.g_model = torch.load(self.pretrained_g_model_weights_path)
             print(f"Loaded `{self.pretrained_g_model_weights_path}` pretrained model weights successfully.")
         if self.pretrained_d_model_weights_path != "":
-            self.d_model = load_pretrained_state_dict(self.d_model, self.pretrained_d_model_weights_path, self.d_model_compiled)
+            self.d_model = load_pretrained_state_dict(self.d_model, self.pretrained_d_model_weights_path,
+                                                      self.d_model_compiled)
             print(f"Loaded `{self.pretrained_d_model_weights_path}` pretrained model weights successfully.")
 
         if self.resumed_g_model_weights_path != "":
@@ -374,15 +377,28 @@ class Trainer(object):
         self.g_rec_loss_weight = torch.Tensor([self.g_rec_loss_weight]).to(self.device)
         self.g_cycle_rec_loss_weight = torch.Tensor([self.g_cycle_rec_loss_weight]).to(self.device)
         self.g_cycle_mask_rec_loss_weight = torch.Tensor([self.g_cycle_mask_rec_loss_weight]).to(self.device)
-        self.g_cycle_mask_vanishing_loss_weight = torch.Tensor([self.g_cycle_mask_vanishing_loss_weight]).to(self.device)
+        self.g_cycle_mask_vanishing_loss_weight = torch.Tensor([self.g_cycle_mask_vanishing_loss_weight]).to(
+            self.device)
         self.g_cycle_spatial_loss_weight = torch.Tensor([self.g_cycle_spatial_loss_weight]).to(self.device)
 
         self.d_gp_loss_weight = torch.Tensor([self.d_gp_loss_weight]).to(self.device)
         self.d_real_cls_loss_weight = torch.Tensor([self.d_real_cls_loss_weight]).to(self.device)
 
         for epoch in range(self.start_epoch, self.epochs):
-            for batch_data in tqdm(self.defect_dataloader):
+            end = time.time()
+            batches = len(self.defect_dataloader)
+            # 进度条信息
+            batch_time = AverageMeter("Time", ":6.3f", Summary.NONE)
+            data_time = AverageMeter("Data", ":6.3f", Summary.NONE)
+            g_losses = AverageMeter("G loss", ":6.6f", Summary.NONE)
+            d_losses = AverageMeter("D loss", ":6.6f", Summary.NONE)
 
+            progress = ProgressMeter(batches,
+                                     [batch_time, data_time, g_losses, d_losses],
+                                     f"Epoch: [{epoch + 1}]")
+            for batch_index, batch_data in enumerate(self.defect_dataloader):
+                # 计算加载一个批次数据时间
+                data_time.update(time.time() - end)
                 normals = batch_data["normal_tensor"]
                 defects = batch_data["defect_tensor"]
                 sd_maps = batch_data["sd_map_tensor"]
@@ -396,6 +412,22 @@ class Trainer(object):
                                  rec_noise)  # Train norm to defect
                 self.train_batch(defects, sd_maps, defect_class_index, normal_class_index, fake_noise,
                                  rec_noise)  # Train defect to normal
+
+                # 统计需要打印的损失
+                g_losses.update(self.g_loss.item(), self.train_batch_size)
+                d_losses.update(self.d_loss.item(), self.train_batch_size)
+
+                # 计算训练完一个批次时间
+                batch_time.update(time.time() - end)
+                end = time.time()
+
+                # 打印训练进度
+                if self.print_freq <= 0:
+                    raise ValueError(f"Invalid value of print_freq: {self.print_freq}, must be greater than 0.")
+                if batch_index == 0 or (batch_index + 1) % self.print_freq == 0 or True:
+                    progress.display(batch_index + 1)
+
+                self.g_model()
 
         for epoch in range(self.start_epoch, self.epochs):
             batch_index = 1
@@ -424,10 +456,13 @@ class Trainer(object):
                 defect_class_index = batch_data['class_index']
 
                 # 将正常的标签设置为0
-                normal_class_index = torch.as_tensor([self.normal_label] * self.train_batch_size).type(torch.LongTensor).to(self.device)
+                normal_class_index = torch.as_tensor([self.normal_label] * self.train_batch_size).type(
+                    torch.LongTensor).to(self.device)
 
-                self.train_batch(normals, sd_maps, normal_class_index, defect_class_index, fake_noise, rec_noise)  # Train norm to defect
-                self.train_batch(defects, sd_maps, defect_class_index, normal_class_index, fake_noise, rec_noise)  # Train defect to normal
+                self.train_batch(normals, sd_maps, normal_class_index, defect_class_index, fake_noise,
+                                 rec_noise)  # Train norm to defect
+                self.train_batch(defects, sd_maps, defect_class_index, normal_class_index, fake_noise,
+                                 rec_noise)  # Train defect to normal
 
                 # 统计需要打印的损失
                 g_losses.update(self.g_loss.item(), self.train_batch_size)
@@ -461,7 +496,8 @@ class Trainer(object):
                 batch_index += 1
                 batch_data = self.train_data_prefetcher.next()
 
-            self.save_model_weights(epoch, f"{self.samples_dir}/g_epoch_{epoch + 1}.pth.tar", f"{self.samples_dir}/d_epoch_{epoch + 1}.pth.tar")
+            self.save_model_weights(epoch, f"{self.samples_dir}/g_epoch_{epoch + 1}.pth.tar",
+                                    f"{self.samples_dir}/d_epoch_{epoch + 1}.pth.tar")
 
     def train_batch(self, real_samples, sd_map, inputs_class_index, target_class_index, fake_noise, rec_noise):
         # 根据正常和缺陷训练方式加载不同类型数据
@@ -524,7 +560,9 @@ class Trainer(object):
         # 计算鉴别器损失
         fake_clone = fake.clone().detach()
         fake_clone.requires_grad = True
-        d_gp_loss = torch.mean(fake_disc_output) - torch.mean(real_disc_output) + 10 * self.gp_criterion(self.d_model, real, fake_clone)
+        d_gp_loss = torch.mean(fake_disc_output) - torch.mean(real_disc_output) + 10 * self.gp_criterion(self.d_model,
+                                                                                                         real,
+                                                                                                         fake_clone)
         d_real_cls_loss = self.cls_criterion(real_cls_output, inputs_class_index)
 
         d_loss = (
@@ -535,7 +573,7 @@ class Trainer(object):
         self.d_optimizer.zero_grad()
         d_loss.backward()
         self.d_optimizer.step()
-        print('success')
+
         self.g_gp_loss = g_gp_loss
         self.g_fake_cls_loss = g_fake_cls_loss
         self.g_rec_loss = g_rec_loss
@@ -547,6 +585,9 @@ class Trainer(object):
         self.d_real_cls_loss = d_real_cls_loss
         self.g_loss = g_loss
         self.d_loss = d_loss
+
+        show_image(real, real2fake_overlay, real2fake_masks)
+
 
     def save_model_weights(self, epoch: int, g_model_weights_path: str, d_model_weights_path: str):
         torch.save(
