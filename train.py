@@ -27,10 +27,9 @@ from torch.optim.swa_utils import AveragedModel
 from torch.utils import data
 
 import wandb
-from dataset_ import DefectGANDataset, CPUPrefetcher, CUDAPrefetcher
-from model_ import defect_generator, defect_discriminator, gradient_penalty_loss
-from utils_ import load_pretrained_state_dict, load_resume_state_dict, make_directory, AverageMeter, Summary, \
-    ProgressMeter
+from dataset import DefectGANDataset, CPUPrefetcher, CUDAPrefetcher
+from model import defect_generator, defect_discriminator, gradient_penalty_loss
+from utils import load_pretrained_state_dict, load_resume_state_dict, make_directory, AverageMeter, Summary, ProgressMeter
 from inference import show_image
 
 

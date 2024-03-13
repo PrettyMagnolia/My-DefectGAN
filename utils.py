@@ -1,12 +1,33 @@
+# Copyright 2023 AlphaBetter Corporation. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 import os
-import torch
-from torch import nn, Tensor
+import warnings
+from collections import OrderedDict
+from enum import Enum
 from typing import Any
-import torch.nn.functional as F
-from torchvision.utils import make_grid
-import matplotlib.pyplot as plt
 
-torch.manual_seed(0)  # Set for our testing purposes, please do not change!
+import torch
+import torch.backends.mps
+from numpy import ndarray
+from torch import nn, Tensor
+from torch import distributed as dist
+from torch.optim import Optimizer
+
+__all__ = [
+    "add_sn_", "load_state_dict", "load_pretrained_state_dict", "load_resume_state_dict", "make_directory",
+    "get_sd_map_from_tensor", "swap_axes", "AverageMeter", "Summary", "ProgressMeter"
+]
 
 
 def _add_sn(m):
@@ -18,6 +39,133 @@ def _add_sn(m):
 
 def add_sn_(model: nn.Module):
     model.apply(_add_sn)
+
+
+def load_state_dict(
+        model: nn.Module,
+        state_dict: dict,
+        compile_mode: bool = False,
+) -> nn.Module:
+    """加载模型参数权重
+
+    Args:
+        model (nn.Module): PyTorch模型
+        state_dict (dict): 模型权重和参数
+        compile_mode (bool, optional): PyTorch2.0支持模型编译, 编译模型会比原始模型参数多一个前缀, 默认: ``False``
+
+    Returns:
+        model (nn.Module): 加载模型权重后的PyTorch模型
+    """
+
+    # 当PyTorch小于2.0时，不支持模型编译
+    if int(torch.__version__[0]) < 2 and compile_mode:
+        warnings.warn("PyTorch version is less than 2.0, does not support model compilation.")
+        compile_mode = False
+
+    # PyTorch2.0支持模型编译后, 编译模型会比原始模型参数多一个前缀，名为如下
+    compile_state = "_orig_mod"
+
+    # 创建新权重字典
+    model_state_dict = model.state_dict()
+    new_state_dict = OrderedDict()
+
+    # 循环加载每一层模型权重
+    for k, v in state_dict.items():
+        current_compile_state = k.split(".")[0]
+
+        if current_compile_state == compile_state and not compile_mode:
+            name = k[len(compile_state) + 1:]
+        elif current_compile_state != compile_state and compile_mode:
+            raise ValueError("The model is not compiled, but the weight is compiled.")
+        else:
+            name = k
+        new_state_dict[name] = v
+    state_dict = new_state_dict
+
+    # 过滤掉尺寸不相符的权重
+    new_state_dict = {k: v for k, v in state_dict.items() if
+                      k in model_state_dict.keys() and v.size() == model_state_dict[k].size()}
+
+    # 更新模型权重
+    model_state_dict.update(new_state_dict)
+    model.load_state_dict(model_state_dict)
+
+    return model
+
+
+def load_pretrained_state_dict(
+        model: nn.Module,
+        model_weights_path: str,
+        compile_mode: bool = False,
+) -> nn.Module:
+    """加载预训练模型权重方法
+
+    Args:
+        model (nn.Module): PyTorch模型
+        model_weights_path (str): model weights path
+        compile_mode (bool, optional): PyTorch2.0支持模型编译, 编译模型会比原始模型参数多一个前缀, 默认: ``False``
+
+    Returns:
+        model (nn.Module): 加载模型权重后的PyTorch模型
+    """
+
+    checkpoint = torch.load(model_weights_path, map_location=lambda storage, loc: storage)
+    state_dict = checkpoint["state_dict"]
+    model = load_state_dict(model, state_dict, compile_mode)
+    return model
+
+
+def load_resume_state_dict(
+        model: nn.Module,
+        ema_model: Any,
+        optimizer: Optimizer,
+        scheduler: Any,
+        model_weights_path: str,
+        compile_mode: bool = False,
+) -> Any:
+    """恢复训练时候加载模型权重方法
+
+    Args:
+        model (nn.Module): model
+        ema_model (nn.Module): EMA model
+        optimizer (nn.optim): optimizer
+        scheduler (nn.optim.lr_scheduler): learning rate scheduler
+        model_weights_path (str): model weights path
+        compile_mode (bool, optional): PyTorch2.0支持模型编译, 编译模型会比原始模型参数多一个前缀, 默认: ``False``
+
+    Returns:
+        model (nn.Module): 加载模型权重后的PyTorch模型
+        ema_model (nn.Module): 加载经过EMA处理后的PyTorch模型
+        start_epoch (int): 起始训练Epoch数
+        optimizer (nn.optim): PyTorch优化器
+        scheduler (nn.optim.lr_scheduler): PyTorch学习率调度器
+    """
+
+    # 加载模型权重
+    checkpoint = torch.load(model_weights_path, map_location=lambda storage, loc: storage)
+
+    # 提取模型权重中参数
+    start_epoch = checkpoint["epoch"]
+    state_dict = checkpoint["state_dict"]
+    ema_state_dict = checkpoint["ema_state_dict"] if "ema_state_dict" in checkpoint else None
+
+    model = load_state_dict(model, state_dict, compile_mode)
+    if ema_state_dict is not None:
+        ema_model = load_state_dict(ema_model, ema_state_dict, compile_mode)
+
+    optimizer.load_state_dict(checkpoint["optimizer"])
+
+    if scheduler is not None:
+        scheduler.load_state_dict(checkpoint["scheduler"])
+    else:
+        scheduler = None
+
+    return model, ema_model, start_epoch, optimizer, scheduler
+
+
+def make_directory(dir_path: str) -> None:
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
 
 
 def get_sd_map_from_tensor(
@@ -41,71 +189,86 @@ def get_sd_map_from_tensor(
     return sd_map_tensor
 
 
-def make_directory(dir_path: str) -> None:
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
+def swap_axes(image: ndarray):
+    image = image.swapaxes(0, 1).swapaxes(1, 2)
+
+    return image
 
 
-def show_tensor_images(image_tensor, num_images=25, size=(1, 28, 28), nrow=5, show=True):
-    """
-    Function for visualizing images: Given a tensor of images, number of images, and
-    size per image, plots and prints the images in an uniform grid.
-    """
-    image_tensor = (image_tensor + 1) / 2
-    image_unflat = image_tensor.detach().cpu()
-    image_grid = make_grid(image_unflat[:num_images], nrow=nrow)
-    plt.imshow(image_grid.permute(1, 2, 0).squeeze())
-    if show:
-        plt.show()
+class Summary(Enum):
+    NONE = 0
+    AVERAGE = 1
+    SUM = 2
+    COUNT = 3
 
 
-def get_one_hot_labels(labels, n_classes):
-    '''
-    Function for creating one-hot vectors for the labels, returns a tensor of shape (?, num_classes).
-    Parameters:
-        labels: tensor of labels from the dataloader, size (?)
-        n_classes: the total number of classes in the dataset, an integer scalar
-    '''
-    #### START CODE HERE ####
-    return F.one_hot(labels, n_classes)
-    #### END CODE HERE ####
+class AverageMeter(object):
+    def __init__(self, name, fmt=":f", summary_type=Summary.AVERAGE):
+        self.name = name
+        self.fmt = fmt
+        self.summary_type = summary_type
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def all_reduce(self):
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+        total = torch.tensor([self.sum, self.count], dtype=torch.float32, device=device)
+        dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
+        self.sum, self.count = total.tolist()
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
+        return fmtstr.format(**self.__dict__)
+
+    def summary(self):
+        if self.summary_type is Summary.NONE:
+            fmtstr = ""
+        elif self.summary_type is Summary.AVERAGE:
+            fmtstr = "{name} {avg:.4f}"
+        elif self.summary_type is Summary.SUM:
+            fmtstr = "{name} {sum:.4f}"
+        elif self.summary_type is Summary.COUNT:
+            fmtstr = "{name} {count:.4f}"
+        else:
+            raise ValueError(f"Invalid summary type {self.summary_type}")
+
+        return fmtstr.format(**self.__dict__)
 
 
-def combine_vectors(x, y):
-    '''
-    Function for combining two vectors with shapes (n_samples, ?) and (n_samples, ?).
-    Parameters:
-      x: (n_samples, ?) the first vector.
-        In this assignment, this will be the noise vector of shape (n_samples, z_dim),
-        but you shouldn't need to know the second dimension's size.
-      y: (n_samples, ?) the second vector.
-        Once again, in this assignment this will be the one-hot class vector
-        with the shape (n_samples, n_classes), but you shouldn't assume this in your code.
-    '''
-    # Note: Make sure this function outputs a float no matter what inputs it receives
-    #### START CODE HERE ####
-    combined = torch.cat((x.float(), y.float()), 1)
-    #### END CODE HERE ####
-    return combined
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
 
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print("\t".join(entries))
 
-def get_input_dimensions(z_dim, mnist_shape, n_classes):
-    '''
-    Function for getting the size of the conditional input dimensions
-    from z_dim, the image shape, and number of classes.
-    Parameters:
-        z_dim: the dimension of the noise vector, a scalar
-        mnist_shape: the shape of each MNIST image as (C, W, H), which is (1, 28, 28)
-        n_classes: the total number of classes in the dataset, an integer scalar
-                (10 for MNIST)
-    Returns:
-        generator_input_dim: the input dimensionality of the conditional generator,
-                          which takes the noise and class vectors
-        discriminator_im_chan: the number of input channels to the discriminator
-                            (e.g. C x 28 x 28 for MNIST)
-    '''
-    #### START CODE HERE ####
-    generator_input_dim = z_dim + n_classes
-    discriminator_im_chan = mnist_shape[0] + n_classes
-    #### END CODE HERE ####
-    return generator_input_dim, discriminator_im_chan
+    def display_summary(self):
+        entries = [" *"]
+        entries += [meter.summary() for meter in self.meters]
+        print(" ".join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = "{:" + str(num_digits) + "d}"
+        return "[" + fmt + "/" + fmt.format(num_batches) + "]"
