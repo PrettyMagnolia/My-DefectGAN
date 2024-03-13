@@ -167,8 +167,13 @@ class DefectGANDiscriminator(nn.Module):
             disc_feature_size = 9
         elif image_size == 128:
             disc_feature_size = 4
-        else:
-            raise ValueError("image_size must be 224 or 128")
+        elif image_size == 400:
+            disc_feature_size = 36
+        elif image_size == 800:
+            disc_feature_size = 144
+        # else:
+        #     raise ValueError("image_size must be 224 or 128")
+        # 如果添加了新的图片尺寸 通过报错信息 获取对应的disc_feature_size 在上面补充添加
 
         main = [
             _Conv2dSamePadding(in_channels, channels, kernel_size=4, stride=2, padding=0, bias=True),

@@ -15,7 +15,7 @@ MODEL:
     CHANNELS: 64
     NUM_BLOCKS: 6
     NUM_DOWN_BLOCKS: 3
-    NOISE_IMAGE_SIZE: 224
+    NOISE_IMAGE_SIZE: 400
     NUM_SPATIAL_LAYERS: 5 # classes
 
     SPECTRAL_NORM: False
@@ -28,7 +28,7 @@ MODEL:
     OUT_CHANNELS: 1
     CHANNELS: 64
     NUM_BLOCKS: 6
-    IMAGE_SIZE: 224
+    IMAGE_SIZE: 400
     NUM_CLASSES: 5 # classes
 
     SPECTRAL_NORM: False
@@ -51,9 +51,9 @@ TRAIN:
     ROOT_DIR: "./datasets"
 
   HYP:
-    EPOCHS: 10
+    EPOCHS: 100
 
-    IMGS_PER_BATCH: 2
+    IMGS_PER_BATCH: 1
     SHUFFLE: True
     NUM_WORKERS: 1 # 4
     PIN_MEMORY: False # True

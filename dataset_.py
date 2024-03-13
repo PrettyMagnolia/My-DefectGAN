@@ -104,21 +104,18 @@ class DefectGANDataset(data.Dataset):
 
             for root, dirs, files in os.walk(defect_dataset_dir):
                 for file in files:
-                    if file.endswith(('.jpg', 'png')):
+                    if file.endswith(('.jpg', 'png')) and root.split('/')[-1] != 'Gap':
                         defect_image_path = os.path.join(root, file)
                         defect_type = root.split('/')[-1]
                         if not os.path.exists(os.path.join(defect_mask_dataset_dir, defect_type, file)):
                             raise FileNotFoundError(
                                 f"Defect mask dataset directory {defect_mask_dataset_dir} does not exist. ")
                         defect_mask_path = os.path.join(defect_mask_dataset_dir, defect_type, file)
-
+                        normal_image_path = os.path.join(normal_dataset_dir, defect_type, file)
                         self.defect_image_list.append(defect_image_path)
                         self.defect_mask_list.append(defect_mask_path)
+                        self.normal_image_list.append(normal_image_path)
                         self.defect_label_list.append(self.defect_category[defect_type])
-
-            for file in os.listdir(normal_dataset_dir)[:len(self.defect_image_list)]:
-                normal_image_path = os.path.join(normal_dataset_dir, file)
-                self.normal_image_list.append(normal_image_path)
 
     def load_image_class_and_image_path_from_index(self, batch_index: int):
         class_index = self.defect_label_list[batch_index]

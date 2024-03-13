@@ -266,8 +266,7 @@ class Trainer(object):
 
     def load_datasets(self):
         print('load_datasets...')
-        defect_dataset = DefectGANDataset(self.train_root_dir, num_classes=self.d_model_num_classes,
-                                          device_id=self.device_id)
+        defect_dataset = DefectGANDataset(root=self.train_root_dir, image_size=self.d_model_image_size, num_classes=self.d_model_num_classes, device_id=self.device_id)
         defect_dataloader = data.DataLoader(
             defect_dataset,
             batch_size=self.train_batch_size,
