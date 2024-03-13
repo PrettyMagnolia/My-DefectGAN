@@ -52,7 +52,7 @@ class Trainer(object):
 
         self.samples_dir = f"./samples/{self.exp_name}"
         self.results_dir = f"./results/{self.exp_name}"
-        self.visuals_dir = f"./results/visuals/{self.exp_name}"
+        # self.visuals_dir = f"./results/visuals/{self.exp_name}"
 
         # 模型相关参数
         self.g_model = None
@@ -160,7 +160,7 @@ class Trainer(object):
         # 训练环境
         make_directory(self.samples_dir)
         make_directory(self.results_dir)
-        make_directory(self.visuals_dir)
+        # make_directory(self.visuals_dir)
         self.setup_seed()
         self.setup_mixing_precision()
         self.setup_device()
@@ -409,7 +409,7 @@ class Trainer(object):
                     torch.LongTensor).to(self.device)
 
                 self.train_batch(normals, sd_maps, normal_class_index, defect_class_index, fake_noise,
-                                 rec_noise)  # Train norm to defect
+                                 rec_noise, show=(batch_index == 0), epoch=epoch)  # Train norm to defect
                 self.train_batch(defects, sd_maps, defect_class_index, normal_class_index, fake_noise,
                                  rec_noise)  # Train defect to normal
 
@@ -427,79 +427,12 @@ class Trainer(object):
                 if batch_index == 0 or (batch_index + 1) % self.print_freq == 0 or True:
                     progress.display(batch_index + 1)
 
-                self.g_model()
+            if epoch % 30 == 0 or epoch == self.epochs - 1:
+                # 保存模型权重
+                self.save_model_weights(epoch, f"{self.samples_dir}/g_epoch_{epoch + 1}.pth.tar",
+                                        f"{self.samples_dir}/d_epoch_{epoch + 1}.pth.tar")
 
-        for epoch in range(self.start_epoch, self.epochs):
-            batch_index = 1
-            self.train_data_prefetcher.reset()
-            end = time.time()
-            batch_data = self.train_data_prefetcher.next()
-            # 计算一个epoch的批次数量
-            batches = len(self.train_data_prefetcher)
-            # 进度条信息
-            batch_time = AverageMeter("Time", ":6.3f", Summary.NONE)
-            data_time = AverageMeter("Data", ":6.3f", Summary.NONE)
-            g_losses = AverageMeter("G loss", ":6.6f", Summary.NONE)
-            d_losses = AverageMeter("D loss", ":6.6f", Summary.NONE)
-
-            progress = ProgressMeter(batches,
-                                     [batch_time, data_time, g_losses, d_losses],
-                                     f"Epoch: [{epoch + 1}]")
-
-            while batch_data is not None:
-                # 计算加载一个批次数据时间
-                data_time.update(time.time() - end)
-
-                normals = batch_data["normal_tensor"]
-                defects = batch_data["defect_tensor"]
-                sd_maps = batch_data["sd_map_tensor"]
-                defect_class_index = batch_data['class_index']
-
-                # 将正常的标签设置为0
-                normal_class_index = torch.as_tensor([self.normal_label] * self.train_batch_size).type(
-                    torch.LongTensor).to(self.device)
-
-                self.train_batch(normals, sd_maps, normal_class_index, defect_class_index, fake_noise,
-                                 rec_noise)  # Train norm to defect
-                self.train_batch(defects, sd_maps, defect_class_index, normal_class_index, fake_noise,
-                                 rec_noise)  # Train defect to normal
-
-                # 统计需要打印的损失
-                g_losses.update(self.g_loss.item(), self.train_batch_size)
-                d_losses.update(self.d_loss.item(), self.train_batch_size)
-
-                # 计算训练完一个批次时间
-                batch_time.update(time.time() - end)
-                end = time.time()
-
-                current_iter = batch_index + epoch * batches + 1
-                # 保存训练日志
-                wandb.log({
-                    "iter": current_iter,
-                    "g_gp_loss": self.g_gp_loss,
-                    "g_fake_cls_loss": self.g_fake_cls_loss,
-                    "g_rec_loss": self.g_rec_loss,
-                    "g_cycle_rec_loss": self.g_cycle_rec_loss,
-                    "g_cycle_mask_rec_loss": self.g_cycle_mask_rec_loss,
-                    "g_cycle_mask_vanishing_loss": self.g_cycle_mask_vanishing_loss,
-                    "g_cycle_spatial_loss": self.g_cycle_spatial_loss,
-                    "d_gp_loss": self.d_gp_loss,
-                    "d_real_cls_loss": self.d_real_cls_loss,
-                })
-                # 打印训练进度
-                if self.print_freq <= 0:
-                    raise ValueError(f"Invalid value of print_freq: {self.print_freq}, must be greater than 0.")
-                if batch_index == 0 or (batch_index + 1) % self.print_freq == 0 or True:
-                    progress.display(batch_index + 1)
-
-                # 加载下一个batch_data
-                batch_index += 1
-                batch_data = self.train_data_prefetcher.next()
-
-            self.save_model_weights(epoch, f"{self.samples_dir}/g_epoch_{epoch + 1}.pth.tar",
-                                    f"{self.samples_dir}/d_epoch_{epoch + 1}.pth.tar")
-
-    def train_batch(self, real_samples, sd_map, inputs_class_index, target_class_index, fake_noise, rec_noise):
+    def train_batch(self, real_samples, sd_map, inputs_class_index, target_class_index, fake_noise, rec_noise, show=False, epoch=0):
         # 根据正常和缺陷训练方式加载不同类型数据
         real = real_samples.to(self.device, non_blocking=True)
         sd_map = sd_map.to(self.device, non_blocking=True)
@@ -586,8 +519,8 @@ class Trainer(object):
         self.g_loss = g_loss
         self.d_loss = d_loss
 
-        show_image(real, real2fake_overlay, real2fake_masks)
-
+        if show:
+            show_image(real, real2fake_overlay, real2fake_masks, epoch, self.results_dir)
 
     def save_model_weights(self, epoch: int, g_model_weights_path: str, d_model_weights_path: str):
         torch.save(
